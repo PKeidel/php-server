@@ -7,7 +7,7 @@ use PKeidel\Server\DNS\Packet\DNSPacket;
 interface IDnsResolver {
     /**
      * @param DNSPacket $request
-     * @return Answer[]
+     * @return Resource[]
      */
     public function getAnswersFor(DNSPacket $request): array;
 }

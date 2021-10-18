@@ -2,6 +2,8 @@
 
 namespace PKeidel\Server\DNS\Packet;
 
-class Authority extends Data {
-    public $isAuthority = true;
+class Authority extends Resource {
+    public function toRaw() {
+        throw new \Exception(__METHOD__ . " not implemented yet");
+    }
 }

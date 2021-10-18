@@ -2,99 +2,78 @@
 
 namespace PKeidel\Server\DNS\Client;
 
+use PKeidel\Server\DNS\Packet\Answer;
 use PKeidel\Server\DNS\Packet\DNSPacket;
-use PKeidel\Server\DNS\Resolver\Answer;
-use PKeidel\Server\DNS\Resolver\IP;
 
-class Client {
-//    /**
-//     * @param $type
-//     * @param $class
-//     * @param $domain
-//     * @return Answer[]
-//     */
-//    public function askFor($type, $class, $domain): array {
-//        // get external IP
-//        $sock = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP);
-//        socket_connect($sock, "8.8.8.8", 53);
-//        socket_getsockname($sock, $ip);
-//        socket_close($sock);
-//
-//        echo "    IP: $ip\n";
-//
-//        $ipParts = explode('.', $ip);
-//        $ipParts[3] = 1;
-//        $dnsServerIp = implode('.', $ipParts);
-//
-//        $dnsServerIp = '192.168.0.1';
-//
-//        echo "    3rd party DNS Server IP: $dnsServerIp\n";
-//
-//        $socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP);
-//
-//        // ask for "A open.spotify.com"
-//        $buf    = hex2bin("b50301000001000000000000046f70656e0773706f7469667903636f6d0000010001");
-//        $len    = strlen($buf);
-//        $flags  = 0;
-//        $port   = 53;
-//
-//        // send question
-//        socket_sendto($socket, $buf, $len, $flags, $dnsServerIp, $port);
-//
-//        // Get answer
-//        $len    = 512;
-//        echo "waiting for socket_recvfrom ...\n";
-//        socket_recvfrom($socket, $buf, $len, $flags, $dnsServerIp, $port);
-//        echo "  got an answer! => ".bin2hex($buf)."\n";
-//
-//        socket_close($socket);
-//        echo "6\n";
-//
-//        $request  = Request::parse($buf);
-//        print_r($request);
-//
-//        $answer = new Answer();
-//        $answer->name     = "$dnsrecord->hostprefix.$dnsrecord->host";
-//        $answer->type     = ['A' => 1][$dnsrecord->type] ?? 0xFF;
-//        $answer->class    = ['IN' => 1, 'CS' => 2, 'CH' => 3, 'HS' => 4][$dnsrecord->class] ?? 0xFF;
-//        $answer->ttl      = $dnsrecord->ttl;
-//        $answer->dataIsIp = true;
-//        $answer->data     = IP::readableArrToRaw(explode('.', $dnsrecord->ip));
-//
-//        return [$answer];
-//    }
+class Client
+{
 
-    public function askForRaw($dnsServerIp, $raw) {
+    /**
+     * @param $dnsServerIp
+     * @param $raw
+     * @return Answer[]
+     * @throws \Exception
+     */
+    public function askForRaw($dnsServerIp, $raw): array
+    {
+
+        echo "│   ├── askForRaw RAW: " . bin2hex($raw) . "\n";
+
         $newId = random_bytes(2);
         $raw[0] = $newId[0];
         $raw[1] = $newId[1];
 
+        // set Additional RR Cout to 0
+        $raw[11] = chr(0);
+
         $socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP);
+        socket_set_nonblock($socket);
+        socket_clear_error($socket);
 
-        $len    = strlen($raw);
-        $flags  = 0;
-        $port   = 53;
+        $len = strlen($raw);
+        $flags = 0;
+        $port = (int)(env('PORT') ?? '53');
 
+        echo "│   ├── socket_sendto(socket, raw, $len, $flags, $dnsServerIp, $port)\n";
         socket_sendto($socket, $raw, $len, $flags, $dnsServerIp, $port);
 
         // Get answer
-        $len    = 512;
-        echo "waiting for socket_recvfrom ...\n";
-        socket_recvfrom($socket, $buf, $len, $flags, $dnsServerIp, $port);
-        echo "  got an answer! => ".bin2hex($buf)."\n";
+        $len = 512;
+        $timeoutSec = 0.4;
+        $sleepMicroSec = 10_000;
+        echo "│   ├── waiting for socket_recvfrom ...\n";
+        $startTime = microtime(true);
+        do {
+            usleep($sleepMicroSec += 10_000);
+            $read = socket_recvfrom($socket, $buf, $len, $flags, $dnsServerIp, $port);
+            echo "│   │   │  └── got: " . var_export($read, true) . "\n";
+            if ($read === FALSE) {
+
+                // check for timeout
+                $currentTime = microtime(true);
+                if (($currentTime - $startTime) > $timeoutSec) {
+                    echo "│   │   └── got an TIMEOUT after $timeoutSec seconds\n";
+                    socket_close($socket);
+                    return [];
+                }
+
+                $errorCode = socket_last_error($socket);
+                socket_clear_error($socket);
+                if ($errorCode !== 11) {
+                    echo "│   │   └── got an ERROR! => " . socket_strerror($errorCode) . " ($errorCode)\n";
+                    socket_close($socket);
+                    return [];
+                }
+            }
+        } while ($read === FALSE);
+
+        echo "│   │   └── got an answer! => " . bin2hex($buf) . "\n";
         socket_close($socket);
 
         $response = new DNSPacket($buf);
-        dump($response);
 
-        $answer = new Answer();
-        $answer->name     = $response->an[0]->domain;
-        $answer->type     = ['A' => 1][$dnsrecord->type] ?? 0xFF;
-        $answer->class    = ['IN' => 1, 'CS' => 2, 'CH' => 3, 'HS' => 4][$dnsrecord->class] ?? 0xFF;
-        $answer->ttl      = $dnsrecord->ttl;
-        $answer->dataIsIp = true;
-        $answer->data     = IP::readableArrToRaw(explode('.', $dnsrecord->ip));
+        echo "│   └── Package contains " . $response->anCount . " answers\n";
 
-        return [$answer];
+        return $response->an;
     }
 }
