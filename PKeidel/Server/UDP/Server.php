@@ -13,15 +13,13 @@ class Server {
     public function start($serverIP, $serverPort) {
         $this->socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP);
 
-//        echo "  socket_bind(.., $serverIP, $serverPort)\n";
         socket_bind($this->socket, $serverIP, $serverPort) or die("Failed to bind to $serverIP:$serverPort");
 
         while (true) {
-            $response = socket_recvfrom($this->socket, $buffer, 32768, 0, $ip, $port);
-            if($response === FALSE) {
+            $bytes = socket_recvfrom($this->socket, $buffer, 32768, 0, $ip, $port);
+            if($bytes === FALSE) {
                 throw new \Exception("Failed to receive packet");
             }
-            echo "\$response = $response\n";
             $this->handlePacket($ip, $port, $buffer);
         }
     }
